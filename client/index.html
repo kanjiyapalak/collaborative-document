@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Collaborative Document Editor</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.4.14/ace.js"></script>
+  <style>
+    :root {
+      --primary-color: #6366f1;
+      --primary-dark: #4f46e5;
+      --secondary-color: #8b5cf6;
+      --text-color: #1f2937;
+      --bg-color: #f8fafc;
+      --border-color: #e5e7eb;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg-color);
+      color: var(--text-color);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: linear-gradient(to right, var(--primary-color), var(--secondary-color));
+      color: white;
+      padding: 1.25rem;
+      text-align: center;
+      font-size: 1.5rem;
+      font-weight: 600;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+
+    main {
+      flex: 1;
+      padding: 2rem;
+      max-width: 1400px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    .controls-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .control-section {
+      flex: 1;
+      min-width: 300px;
+      background: white;
+      padding: 1.5rem;
+      border-radius: 1rem;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .control-section h3 {
+      color: var(--primary-color);
+      font-size: 1.125rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .control-group label {
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: #4b5563;
+    }
+
+    input[type="text"],
+    input[type="file"] {
+      padding: 0.75rem;
+      border: 2px solid var(--border-color);
+      border-radius: 0.5rem;
+      font-size: 0.875rem;
+      transition: all 0.2s;
+      outline: none;
+    }
+
+    input[type="text"]:focus {
+      border-color: var(--primary-color);
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+    }
+
+    button {
+      background: linear-gradient(to right, var(--primary-color), var(--secondary-color));
+      color: white;
+      padding: 0.75rem 1rem;
+      border: none;
+      border-radius: 0.5rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      width: fit-content; /* Make buttons fit their content */
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+    }
+
+    button:active {
+      transform: translateY(0);
+    }
+
+    #editor {
+      height: 500px;
+      width: 100%;
+      border: 2px solid var(--border-color);
+      border-radius: 1rem;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+
+    .footer {
+      background: white;
+      padding: 1rem 1.5rem;
+      border-radius: 1rem;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+
+    .footer strong {
+      color: var(--primary-color);
+      font-size: 0.875rem;
+      display: block;
+      margin-bottom: 0.5rem;
+    }
+
+    #userList {
+      list-style: none;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    #userList li {
+      background: #f3f4f6;
+      padding: 0.25rem 0.75rem;
+      border-radius: 1rem;
+      font-size: 0.875rem;
+      color: #4b5563;
+    }
+
+    @media (max-width: 768px) {
+      main {
+        padding: 1rem;
+      }
+
+      .controls-container {
+        flex-direction: column;
+      }
+
+      .control-section {
+        min-width: unset;
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>Collaborative Document Editor</header>
+
+  <main>
+    <div class="controls-container">
+      <div class="control-section">
+        <h3>Document Actions</h3>
+        <div class="control-group">
+          <button onclick="createDocument()">New Document</button>
+        </div>
+
+        <div class="control-group">
+          <label for="fileUpload">Upload TXT File</label>
+          <input type="file" id="fileUpload" accept=".txt" style="display: none;">
+          <button onclick="console.log('Choose File button clicked!'); document.getElementById('fileUpload').click()">Choose File</button>
+          <span id="selectedFileName" style="font-size: 0.875rem; color: #4b5563; margin-top: 0.5rem;">No file selected</span>
+          <button id="uploadSelectedFileBtn" disabled>Upload File</button>
+        </div>
+
+        <div class="control-group">
+          <label for="downloadDocId">Download Document</label>
+          <input type="text" id="downloadDocId" placeholder="Enter document name">
+          <button onclick="downloadDocument()">Download</button>
+        </div>
+      </div>
+
+      <div class="control-section">
+        <h3>Collaboration</h3>
+        <div class="control-group">
+          <label for="docCode">Share Document</label>
+          <input type="text" id="docCode" placeholder="Enter document code" readonly>
+          <button onclick="generateLink()">Generate Link</button>
+          <button onclick="copyToClipboard('docCode')">Copy Code</button>
+        </div>
+
+        <div class="control-group">
+          <label for="docIdToOpen">Open Document (by ID)</label>
+          <input type="text" id="docIdToOpen" placeholder="Enter document ID">
+          <button onclick="openDocumentById()">Open by ID</button>
+          <button onclick="copyToClipboard('docIdToOpen')">Copy ID</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="editor"></div>
+
+    <div class="footer">
+      <strong>Current Document ID: </strong> <span id="displayDocId">None</span>
+      <br>
+      <strong>Active Users</strong>
+      <ul id="userList"></ul>
+    </div>
+  </main>
+
+  <script>
+    console.log("index.html script started.");
+    let currentDocId = null;
+    let username = localStorage.getItem('collaborativeEditorUsername'); // Try to get from local storage
+    if (!username) {
+        username = prompt("Enter your username");
+        if (username) {
+            localStorage.setItem('collaborativeEditorUsername', username); // Save to local storage
+        } else {
+            username = "Anonymous"; // Fallback if user cancels prompt
+        }
+    }
+
+    // This flag will prevent sending changes back to the server when they originate from a remote update
+    let isRemoteUpdate = false;
+    let debounceTimeout; // To store the timeout ID for debouncing
+
+    // Initial display update
+    updateDisplayedDocId(currentDocId);
+
+    // Handle initial document ID from URL if provided
+    const urlParams = new URLSearchParams(window.location.search);
+    const initialDocId = urlParams.get('docId');
+    if (initialDocId) {
+        currentDocId = initialDocId;
+        // Ensure username is set before joining doc
+        if (!username) {
+            username = prompt("Enter your username to join this document:");
+            if (username) {
+                localStorage.setItem('collaborativeEditorUsername', username);
+            } else {
+                username = "Anonymous";
+            }
+        }
+        socket.emit('joinDoc', { docId: currentDocId, username });
+        updateDisplayedDocId(currentDocId);
+    }
+
+    // Restore currentDocId from localStorage if not set by URL
+    window.addEventListener('DOMContentLoaded', function() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const initialDocId = urlParams.get('docId');
+        if (initialDocId) {
+            currentDocId = initialDocId;
+            localStorage.setItem('currentDocId', currentDocId);
+            socket.emit('joinDoc', { docId: currentDocId, username });
+            updateDisplayedDocId(currentDocId);
+            // Do NOT emit requestDocContent; server will send receiveChanges
+        } else {
+            const storedDocId = localStorage.getItem('currentDocId');
+            if (storedDocId) {
+                currentDocId = storedDocId;
+                socket.emit('joinDoc', { docId: currentDocId, username });
+                updateDisplayedDocId(currentDocId);
+                // Do NOT emit requestDocContent; server will send receiveChanges
+            } else {
+                editor.setValue("");
+                updateDisplayedDocId(null);
+            }
+        }
+    });
+
+    const token = localStorage.getItem('token');
+    console.log("Frontend: Token retrieved for checkAuth:", token ? token.substring(0, 10) + '...' : 'No token'); // Log first 10 chars
+
+    fetch('/checkAuth', {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    })
+    .then(async res => {
+      console.log("Frontend: checkAuth response status:", res.status);
+      if (!res.ok) {
+        const errorData = await res.json();
+        console.error("Frontend: checkAuth failed:", errorData);
+        window.location.href = 'login.html'; // redirect if not logged in
+      }
+      return res.json();
+    })
+    .catch(err => {
+      console.error("Frontend: checkAuth network error or JSON parsing error:", err);
+      window.location.href = 'login.html';
+    });
+
+    const socket = io('http://localhost:5000'); // Explicitly connect to backend port
+    console.log("Frontend: Attempting to connect to Socket.IO server...");
+
+    // Send a test event to the server to confirm connection
+    socket.emit('clientTestEvent', 'Hello from frontend!');
+
+    // Listen for a test event back from the server
+    socket.on('serverTestEvent', (message) => {
+        console.log('Frontend: Received serverTestEvent:', message);
+    });
+
+    const editor = ace.edit("editor");
+    editor.setTheme("ace/theme/github");
+    editor.session.setMode("ace/mode/javascript");
+
+    // === File Upload Logic ===
+    const fileInput = document.getElementById('fileUpload');
+    const selectedFileNameSpan = document.getElementById('selectedFileName');
+    const uploadButton = document.getElementById('uploadSelectedFileBtn');
+    let uploadedFile = null;
+
+    fileInput.addEventListener('change', (event) => {
+        uploadedFile = event.target.files[0];
+        if (uploadedFile) {
+            selectedFileNameSpan.textContent = `Selected: ${uploadedFile.name}`;
+            uploadButton.disabled = false; // Enable upload button
+        } else {
+            selectedFileNameSpan.textContent = 'No file selected';
+            uploadButton.disabled = true; // Disable upload button
+        }
+    });
+
+    uploadButton.addEventListener('click', async () => {
+        if (!uploadedFile) {
+            alert('Please choose a file first.');
+            return;
+        }
+
+        console.log('Attempting to upload file:', uploadedFile.name, uploadedFile.type, uploadedFile.size, 'bytes');
+        console.log('currentDocId before check:', currentDocId);
+
+        try {
+            const text = await uploadedFile.text();
+            
+            console.log('File content read. Length:', text.length);
+            
+            // Ensure a docId exists before uploading
+            if (!currentDocId) {
+                console.log("Upload: No currentDocId. Creating new document for upload.");
+                // Await the resolution of createDocument which returns the new docId
+                currentDocId = await createDocument(); 
+                // The alert and updateDisplayedDocId are already handled within createDocument.
+            }
+            // Now currentDocId is guaranteed to have a value.
+            console.log('Current docId for upload (before sending):', currentDocId);
+
+            // Send the file content to server to create/update document
+            socket.emit('uploadFile', {
+                docId: currentDocId,
+                content: text,
+                filename: uploadedFile.name
+            });
+
+            // Reset input after upload
+            fileInput.value = '';
+            uploadedFile = null;
+            selectedFileNameSpan.textContent = 'No file selected';
+            uploadButton.disabled = true; // Disable upload button again
+
+        } catch (error) {
+            console.error('Error reading file or during upload:', error);
+            alert('Error reading file or during upload. Please try again.');
+            selectedFileNameSpan.textContent = 'No file selected';
+            uploadButton.disabled = true; // Disable upload button again
+        }
+    });
+
+    // Handle file upload response
+    socket.on('fileUploaded', (data) => {
+        editor.setValue(data.content);
+        alert(`File "${data.filename}" uploaded successfully!`);
+    });
+
+    // === End File Upload Logic ===
+
+    // Real-time syncing function that sends changes to the server
+    const sendChanges = () => {
+      if (isRemoteUpdate) {
+        // If the change was initiated by a remote update, do not send it back
+        return;
+      }
+      const content = editor.getValue();
+      if (currentDocId) {
+        socket.emit("sendChanges", { docId: currentDocId, content });
+      }
+    };
+
+    // Debounced version of sendChanges, triggered by local editor changes
+    editor.on("change", () => {
+      clearTimeout(debounceTimeout); // Clear any existing debounce timer
+      debounceTimeout = setTimeout(sendChanges, 500); // Schedule sendChanges after 500ms of inactivity
+    });
+
+    socket.on("receiveChanges", content => {
+      console.log("Received changes from server. Content length:", content ? content.length : 0);
+      if (content !== editor.getValue()) {
+        // When a remote change arrives, prioritize it by canceling any pending local sends
+        clearTimeout(debounceTimeout);
+
+        const cursor = editor.getCursorPosition(); // Save cursor position
+
+        isRemoteUpdate = true; // Set flag before applying remote update
+        editor.setValue(content);
+        editor.clearSelection();
+        editor.moveCursorToPosition(cursor); // Restore cursor position
+        isRemoteUpdate = false; // Reset flag after applying remote update
+      }
+    });
+
+    function createDocument() {
+      const newDocId = generateDocId();
+      currentDocId = newDocId;
+      localStorage.setItem('currentDocId', newDocId); // Persist docId
+      console.log('createDocument: Generated newDocId and set currentDocId:', newDocId);
+      return new Promise(resolve => {
+        socket.emit('joinDoc', { docId: newDocId, username });
+        socket.once('receiveChanges', () => {
+          console.log('createDocument: Received receiveChanges for docId:', newDocId);
+          alert("New Document Created. Code: " + newDocId);
+          updateDisplayedDocId(newDocId);
+          editor.setValue(""); // Clear editor for new document
+          resolve(newDocId); // Resolve with the new docId
+        });
+      });
+    }
+
+    function generateLink() {
+      if (!currentDocId) return alert("Create or open a document first.");
+      document.getElementById("docCode").value = currentDocId;
+      alert(`Share this document code: ${currentDocId}`);
+    }
+
+    function openDocumentById() {
+      const docId = document.getElementById("docIdToOpen").value.trim();
+      if (docId) {
+        currentDocId = docId;
+        localStorage.setItem('currentDocId', docId); // Persist docId
+        editor.setValue(""); // Clear editor content immediately when opening a new document by ID
+        socket.emit('joinDoc', { docId: currentDocId, username });
+        updateDisplayedDocId(currentDocId);
+        // Do NOT emit requestDocContent; server will send receiveChanges
+      } else {
+        alert("Please enter a Document ID.");
+      }
+    }
+
+ function downloadDocument() {
+  const content = editor.getValue();
+  const userProvidedName = document.getElementById("downloadDocId").value.trim();
+
+  // Priority: user input > currentDocId > "document"
+  const filename = userProvidedName || currentDocId || "document";
+
+  const blob = new Blob([content], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename + ".txt"; // final file name
+  a.click();
+
+  URL.revokeObjectURL(url);
+}
+
+
+    function generateDocId() {
+      return Math.random().toString(36).substr(2, 9);
+    }
+
+    socket.on("activeUsers", users => {
+      const userList = document.getElementById("userList");
+      userList.innerHTML = "";
+      users.forEach(u => {
+        const li = document.createElement("li");
+        li.textContent = u;
+        userList.appendChild(li);
+      });
+    });
+
+    function copyToClipboard(elementId) {
+      const element = document.getElementById(elementId);
+      element.select();
+      element.setSelectionRange(0, 99999); // For mobile devices
+      document.execCommand('copy');
+      alert('Copied to clipboard!');
+    }
+
+    // Helper to update displayed doc ID
+    function updateDisplayedDocId(docId) {
+        document.getElementById("displayDocId").textContent = docId || "None";
+        if (docId) {
+            document.getElementById("docCode").value = docId;
+            document.getElementById("docIdToOpen").value = docId;
+        } else {
+            document.getElementById("docCode").value = "";
+            document.getElementById("docIdToOpen").value = "";
+        }
+    }
+  </script>
+</body>
+</html>
